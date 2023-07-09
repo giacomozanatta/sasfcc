@@ -1,1 +1,2 @@
+root class Object
 class server
