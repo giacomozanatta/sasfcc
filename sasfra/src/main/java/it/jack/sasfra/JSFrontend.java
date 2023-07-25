@@ -19,6 +19,8 @@ import it.jack.sasfra.antlr.JavaScriptParser.VariableDeclarationListContext;
 import it.jack.sasfra.antlr.JavaScriptParser.VariableStatementContext;
 import it.jack.sasfra.antlr.JavaScriptParserBaseVisitor;
 import it.jack.sasfra.libraries.LibrarySpecificationProvider;
+
+import it.unive.lisa.util.datastructures.graph.code.NodeList;
 import it.unive.lisa.AnalysisSetupException;
 import it.unive.lisa.program.CodeUnit;
 import it.unive.lisa.program.Program;
@@ -27,6 +29,7 @@ import it.unive.lisa.program.cfg.CFG;
 import it.unive.lisa.program.cfg.CodeMemberDescriptor;
 import it.unive.lisa.program.cfg.Parameter;
 import it.unive.lisa.program.cfg.VariableTableEntry;
+import it.unive.lisa.program.cfg.edge.Edge;
 import it.unive.lisa.program.cfg.edge.SequentialEdge;
 import it.unive.lisa.program.cfg.statement.Assignment;
 import it.unive.lisa.program.cfg.statement.Expression;
@@ -35,7 +38,6 @@ import it.unive.lisa.program.cfg.statement.Statement;
 import it.unive.lisa.program.cfg.statement.VariableRef;
 import it.unive.lisa.program.cfg.statement.literal.Float32Literal;
 import it.unive.lisa.program.cfg.statement.literal.Int32Literal;
-import it.unive.lisa.program.cfg.statement.literal.Literal;
 import it.unive.lisa.program.cfg.statement.literal.StringLiteral;
 import it.unive.lisa.program.type.BoolType;
 import it.unive.lisa.program.type.Float32Type;
@@ -49,6 +51,8 @@ import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.tree.RuleNode;
+
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -69,6 +73,7 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
 
     private static final Logger log = LogManager.getLogger(JSFrontend.class);
 
+    private static final SequentialEdge SEQUENTIAL_SINGLETON = new SequentialEdge();
 
 
     public JSFrontend(String filePath) {
@@ -173,19 +178,29 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
     }
 
     @Override
-    public Statement[] visitVariableDeclarationList(VariableDeclarationListContext ctx) {
+    public Triple<Statement, NodeList<CFG, Statement, Edge>, Statement> visitVariableDeclarationList(VariableDeclarationListContext ctx) {
         // variableDeclarationList: varModifier variableDeclaration (',' variableDeclaration)*
+        NodeList<CFG, Statement, Edge> block = new NodeList<>(SEQUENTIAL_SINGLETON);
+
+        Statement last = null, first = null;
 
         if (ctx.variableDeclaration() != null) {
             for (VariableDeclarationContext vdc : ctx.variableDeclaration()) {
-                Object e = visitVariableDeclaration(vdc);
+                Statement s = visitVariableDeclaration(vdc);
+                block.addNode(s);
+                if (first == null)
+                    first = s;
+                if (last != null)
+                    block.addEdge(new SequentialEdge(last, s));
+                last = s;
             }
         }
-        return null;
+
+        return Triple.of(first, block, last);
     }
 
     @Override
-    public Statement[] visitVariableStatement(VariableStatementContext ctx){
+    public Triple<Statement, NodeList<CFG, Statement, Edge>, Statement> visitVariableStatement(VariableStatementContext ctx){
         if (ctx.variableDeclarationList() != null) {
             return visitVariableDeclarationList(ctx.variableDeclarationList());
         } 
@@ -295,6 +310,7 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
         if (ctx.assignable() == null && ctx.singleExpression() == null) {
             throw new RuntimeException();
         }
+
         Expression variableRef = visitAssignable(ctx.assignable());
         if (variableRef == null) {
             throw new RuntimeException();
@@ -304,6 +320,7 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
         if (singleExpression == null) {
             throw new RuntimeException();
         }
+
         Assignment assignment = new Assignment(currentCFG, getLocation(ctx), variableRef, singleExpression);
         addNodeOnCFG(currentCFG, assignment);
         return assignment;
