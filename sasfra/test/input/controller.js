@@ -1,3 +1,4 @@
 'use strict';
-var a = 1;
-var x = 5;
+var x = "server"
+var g = x
+var server = require(x);

@@ -2,12 +2,15 @@ package it.jack.sasfra;
 
 import it.jack.sasfra.antlr.JavaScriptLexer;
 import it.jack.sasfra.antlr.JavaScriptParser;
+import it.jack.sasfra.antlr.JavaScriptParser.AdditiveExpressionContext;
+import it.jack.sasfra.antlr.JavaScriptParser.ArgumentContext;
 import it.jack.sasfra.antlr.JavaScriptParser.ArgumentsContext;
 import it.jack.sasfra.antlr.JavaScriptParser.ArgumentsExpressionContext;
 import it.jack.sasfra.antlr.JavaScriptParser.AssignableContext;
 import it.jack.sasfra.antlr.JavaScriptParser.ExpressionSequenceContext;
 import it.jack.sasfra.antlr.JavaScriptParser.ExpressionStatementContext;
 import it.jack.sasfra.antlr.JavaScriptParser.IdentifierContext;
+import it.jack.sasfra.antlr.JavaScriptParser.IdentifierExpressionContext;
 import it.jack.sasfra.antlr.JavaScriptParser.LiteralContext;
 import it.jack.sasfra.antlr.JavaScriptParser.LiteralExpressionContext;
 import it.jack.sasfra.antlr.JavaScriptParser.NumericLiteralContext;
@@ -17,6 +20,7 @@ import it.jack.sasfra.antlr.JavaScriptParser.SourceElementsContext;
 import it.jack.sasfra.antlr.JavaScriptParser.VariableDeclarationContext;
 import it.jack.sasfra.antlr.JavaScriptParser.VariableDeclarationListContext;
 import it.jack.sasfra.antlr.JavaScriptParser.VariableStatementContext;
+import it.jack.sasfra.cfg.type.JSClassType;
 import it.jack.sasfra.antlr.JavaScriptParserBaseVisitor;
 import it.jack.sasfra.libraries.LibrarySpecificationProvider;
 
@@ -36,9 +40,13 @@ import it.unive.lisa.program.cfg.statement.Expression;
 import it.unive.lisa.program.cfg.statement.Ret;
 import it.unive.lisa.program.cfg.statement.Statement;
 import it.unive.lisa.program.cfg.statement.VariableRef;
+import it.unive.lisa.program.cfg.statement.call.UnresolvedCall;
+import it.unive.lisa.program.cfg.statement.call.Call.CallType;
 import it.unive.lisa.program.cfg.statement.literal.Float32Literal;
 import it.unive.lisa.program.cfg.statement.literal.Int32Literal;
 import it.unive.lisa.program.cfg.statement.literal.StringLiteral;
+import it.unive.lisa.program.cfg.statement.numeric.Addition;
+import it.unive.lisa.program.cfg.statement.numeric.Subtraction;
 import it.unive.lisa.program.type.BoolType;
 import it.unive.lisa.program.type.Float32Type;
 import it.unive.lisa.program.type.Int32Type;
@@ -62,8 +70,10 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedList;
+import java.util.List;
 
 public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
     private Program program;
@@ -143,6 +153,7 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
 
 		return new CodeMemberDescriptor(loc, currentUnit, false, "$main", cfgArgs);
 	}
+
     @Override
     public Object visitProgram(JavaScriptParser.ProgramContext ctx) {
         	
@@ -151,7 +162,13 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
         // Program: HashBangLine? | SourceElements? | EOF
         
         if (ctx.sourceElements() != null) {
-            visitSourceElements(ctx.sourceElements());
+            Object el = visitSourceElements(ctx.sourceElements());
+            if (el instanceof Triple<?,?,?>) {
+                Triple<Statement, NodeList<CFG, Statement, Edge>, Statement> element = (Triple<Statement, NodeList<CFG, Statement, Edge>, Statement>) el;
+                currentCFG.getNodeList().mergeWith(element.getMiddle());
+                currentCFG.getEntrypoints().add(element.getLeft());
+
+            }   
         }
 
         addRetNodesToCurrentCFG();
@@ -161,18 +178,31 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
     
     public Object visitSourceElements(SourceElementsContext ctx) {
         // SourceElements: SourceElement+
+        NodeList<CFG, Statement, Edge> block = new NodeList<>(SEQUENTIAL_SINGLETON);
+        Statement last = null, first = null;
         if (ctx.sourceElement() != null) {
             for (SourceElementContext sec : ctx.sourceElement()) {
                 Object e = visitSourceElement(sec);
-                System.out.println(e);
+                if (e instanceof Triple<?,?,?>) {
+                    Triple<Statement, NodeList<CFG, Statement, Edge>, Statement> element = (Triple<Statement, NodeList<CFG, Statement, Edge>, Statement>) e;
+                    block.mergeWith(element.getMiddle());
+                    if (first == null) {
+                        first = element.getLeft();
+                    }
+                    if (last != null) {
+                        block.addEdge(new SequentialEdge(last, element.getLeft()));
+                    }
+                    last = element.getRight();
+                    
+                }
             }
         }
-        return null;
+        return Triple.of(first, block, last);
     }
     
     public Object visitSourceElement(SourceElementContext ctx) {
         if (ctx.statement() != null) {
-            visitStatement(ctx.statement());
+            return visitStatement(ctx.statement());
         }
         return null;
     }
@@ -181,7 +211,6 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
     public Triple<Statement, NodeList<CFG, Statement, Edge>, Statement> visitVariableDeclarationList(VariableDeclarationListContext ctx) {
         // variableDeclarationList: varModifier variableDeclaration (',' variableDeclaration)*
         NodeList<CFG, Statement, Edge> block = new NodeList<>(SEQUENTIAL_SINGLETON);
-
         Statement last = null, first = null;
 
         if (ctx.variableDeclaration() != null) {
@@ -222,7 +251,10 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
     public Expression visitLiteral(LiteralContext ctx) {
         if (ctx.StringLiteral() != null) {
             // TERMINAL NODE
-            return new StringLiteral(currentCFG,getLocation(ctx), ctx.StringLiteral().getText());
+            String literal = ctx.StringLiteral().getText();
+            literal = literal.substring(1, literal.length()-1);
+            
+            return new StringLiteral(currentCFG,getLocation(ctx), literal);
         }
         if (ctx.numericLiteral() != null) {
             return visitNumericLiteral(ctx.numericLiteral());
@@ -256,7 +288,34 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
         }
         throw new RuntimeException();
     }
-    public Object visitArguments(ArgumentsContext ctx) {
+
+    public Expression visitArgument(ArgumentContext ctx) {
+        /* Ellipsis? (singleExpression | identifier) */
+        if (ctx.identifier() != null) {
+            return visitIdentifier(ctx.identifier());
+        }
+
+        if (ctx.singleExpression() != null) {
+            return visitSingleExpression(ctx.singleExpression());
+        }
+        if (ctx.Ellipsis() != null) {
+            //TODO: Ellipsis
+            return null;
+        }
+        return null;
+    }
+    public List<Expression> visitArguments(ArgumentsContext ctx) {
+        List<Expression> arguments = new ArrayList<>();
+        for (ArgumentContext ac : ctx.argument()) {
+            Expression e = visitArgument(ac);
+            if (e != null) {
+                arguments.add(e);
+            }
+        }
+        return arguments;
+    }
+
+    public Expression visitAdditiveExpression(AdditiveExpressionContext ctx) {
         return null;
     }
 
@@ -268,24 +327,52 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
             }
         }
 
+        if (ctx instanceof IdentifierExpressionContext) {
+            IdentifierExpressionContext iec = (IdentifierExpressionContext) ctx;
+            return visitIdentifier(iec.identifier());
+        }
+
+        if (ctx instanceof AdditiveExpressionContext) {
+            AdditiveExpressionContext aec = (AdditiveExpressionContext) ctx;
+            /* singleExpression ('+' | '-') singleExpression  */
+            Expression first = visitSingleExpression(aec.singleExpression(0));
+            Expression second = visitSingleExpression(aec.singleExpression(1));
+            if (aec.Plus() != null) {
+                return new Addition(currentCFG, getLocation(ctx), first, second);
+            } else {
+                return new Subtraction(currentCFG, getLocation(ctx), first, second);
+            }
+        }
+
         if (ctx instanceof ArgumentsExpressionContext) {
             ArgumentsExpressionContext aec = (ArgumentsExpressionContext) ctx;
-            if (aec.arguments() != null) {
-                visitArguments(aec.arguments());
-            } 
-            System.out.println(aec);
+            List<Expression> arguments = null;
+            arguments = visitArguments(aec.arguments());
+            Expression singleExpression = visitSingleExpression(aec.singleExpression());
+            // this is a method call.
+            String methodName = singleExpression.toString();
+            System.out.println(singleExpression.toString());
+            return new UnresolvedCall(currentCFG, getLocation(ctx), CallType.STATIC, null, methodName, arguments.toArray(Expression[]::new));
         }
         return null;
     }
 
-    public Object visitExpressionSequence(ExpressionSequenceContext ctx) {
+    public Triple<Statement, NodeList<CFG, Statement, Edge>, Statement> visitExpressionSequence(ExpressionSequenceContext ctx) {
+        NodeList<CFG, Statement, Edge> block = new NodeList<>(SEQUENTIAL_SINGLETON);
+
+        Statement last = null, first = null;
         if (ctx.singleExpression() != null) {
             for (SingleExpressionContext sec : ctx.singleExpression()) {
-                Expression e = visitSingleExpression(sec);            
-                System.out.println(e);
+                Statement st = visitSingleExpression(sec);     
+                block.addNode(st);
+                if (first == null)
+                    first = st;
+                if (last != null)
+                    block.addEdge(new SequentialEdge(last, st));
+                last = st;
             }
         }
-        return super.visitExpressionSequence(ctx);
+        return Triple.of(first, block, last);
     }
 
 
@@ -303,6 +390,7 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
         }
         return super.visitExpressionStatement(ctx);
     }
+
     @Override
     public Statement visitVariableDeclaration(JavaScriptParser.VariableDeclarationContext ctx) {
         // assignable ('=' singleExpression)?
@@ -322,7 +410,7 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
         }
 
         Assignment assignment = new Assignment(currentCFG, getLocation(ctx), variableRef, singleExpression);
-        addNodeOnCFG(currentCFG, assignment);
+        //addNodeOnCFG(currentCFG, assignment);
         return assignment;
     }
 

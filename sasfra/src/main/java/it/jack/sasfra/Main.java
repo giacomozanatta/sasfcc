@@ -1,12 +1,12 @@
 package it.jack.sasfra;
 
+import it.jack.sasfra.analysis.ConstantPropagation;
 import it.unive.lisa.AnalysisException;
 import it.unive.lisa.LiSA;
 import it.unive.lisa.analysis.SimpleAbstractState;
 import it.unive.lisa.analysis.heap.pointbased.FieldSensitivePointBasedHeap;
 import it.unive.lisa.analysis.nonrelational.value.TypeEnvironment;
 import it.unive.lisa.analysis.nonrelational.value.ValueEnvironment;
-import it.unive.lisa.analysis.numeric.IntegerConstantPropagation;
 import it.unive.lisa.analysis.types.InferredTypes;
 import it.unive.lisa.conf.LiSAConfiguration;
 import it.unive.lisa.interprocedural.ReturnTopPolicy;
@@ -34,9 +34,8 @@ public class Main {
         FieldSensitivePointBasedHeap heap = new FieldSensitivePointBasedHeap();
         TypeEnvironment<InferredTypes> type = new TypeEnvironment<>(new InferredTypes());
         //conf.interproceduralAnalysis = new ContextBasedAnalysis();
-        ValueEnvironment<IntegerConstantPropagation> domain = new ValueEnvironment<>(new IntegerConstantPropagation());
-        //conf.semanticChecks.add(new ROSComputationGraphDumper());
-        conf.abstractState = new SimpleAbstractState<>(heap, domain, type);
+        ValueEnvironment<ConstantPropagation> domain = new ValueEnvironment<>(new ConstantPropagation());
+         conf.abstractState = new SimpleAbstractState<>(heap, domain, type);
         LiSA lisa = new LiSA(conf);
         lisa.run(p);
         return;
