@@ -10,6 +10,7 @@ import it.jack.sasfcc.antlr.JavaScriptParser.ArgumentsContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.ArgumentsExpressionContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.ArrowFunctionContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.AssignableContext;
+import it.jack.sasfcc.antlr.JavaScriptParser.AssignmentExpressionContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.ExpressionSequenceContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.ExpressionStatementContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.FunctionBodyContext;
@@ -373,10 +374,19 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
             visitMemberDotExpression(mdec);
         }
 
+        if (ctx instanceof AssignmentExpressionContext) {
+            AssignmentExpressionContext aec = (AssignmentExpressionContext) aec;
+            visitAssignmentExpression(aec);
+        }
         return null;
     }
 
     public Object visitMemberDotExpression(MemberDotExpressionContext ctx) {
+        // singleExpression.identifierName
+
+        // Unresolved Call
+
+        // check parent (Arguments Expression Context)
         return null;
     }
 
@@ -388,7 +398,6 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
         
     }
     public Object visitAnonymousFunctionDecl(AnonymousFunctionDeclContext ctx) {
-        String anonF = "$function@" + getLocation(ctx).toString();
         CFG parentCFG = this.currentCFG;
 
         this.currentCFG = new CFG(buildAnonymousCFGDescriptor(getLocation(ctx)));
@@ -475,7 +484,6 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
         }
 
         Assignment assignment = new Assignment(currentCFG, getLocation(ctx), variableRef, singleExpression);
-        //addNodeOnCFG(currentCFG, assignment);
         return assignment;
     }
 
