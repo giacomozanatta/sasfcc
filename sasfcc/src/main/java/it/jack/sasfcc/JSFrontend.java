@@ -3,16 +3,22 @@ package it.jack.sasfcc;
 import it.jack.sasfcc.antlr.JavaScriptLexer;
 import it.jack.sasfcc.antlr.JavaScriptParser;
 import it.jack.sasfcc.antlr.JavaScriptParser.AdditiveExpressionContext;
+import it.jack.sasfcc.antlr.JavaScriptParser.AnonymousFunctionContext;
+import it.jack.sasfcc.antlr.JavaScriptParser.AnonymousFunctionDeclContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.ArgumentContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.ArgumentsContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.ArgumentsExpressionContext;
+import it.jack.sasfcc.antlr.JavaScriptParser.ArrowFunctionContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.AssignableContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.ExpressionSequenceContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.ExpressionStatementContext;
+import it.jack.sasfcc.antlr.JavaScriptParser.FunctionBodyContext;
+import it.jack.sasfcc.antlr.JavaScriptParser.FunctionExpressionContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.IdentifierContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.IdentifierExpressionContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.LiteralContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.LiteralExpressionContext;
+import it.jack.sasfcc.antlr.JavaScriptParser.MemberDotExpressionContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.NumericLiteralContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.SingleExpressionContext;
 import it.jack.sasfcc.antlr.JavaScriptParser.SourceElementContext;
@@ -148,6 +154,12 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
         return program;
     }
 
+
+    private CodeMemberDescriptor buildAnonymousCFGDescriptor(SourceCodeLocation loc) {
+        Parameter[] cfgArgs = new Parameter[] {};
+        String anonF = "$function@" + loc.toString();
+        return new CodeMemberDescriptor(loc, currentUnit, false, anonF, cfgArgs);
+    }
     private CodeMemberDescriptor buildMainCFGDescriptor(SourceCodeLocation loc) {
 		Parameter[] cfgArgs = new Parameter[] {};
 
@@ -162,13 +174,9 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
         // Program: HashBangLine? | SourceElements? | EOF
         
         if (ctx.sourceElements() != null) {
-            Object el = visitSourceElements(ctx.sourceElements());
-            if (el instanceof Triple<?,?,?>) {
-                Triple<Statement, NodeList<CFG, Statement, Edge>, Statement> element = (Triple<Statement, NodeList<CFG, Statement, Edge>, Statement>) el;
-                currentCFG.getNodeList().mergeWith(element.getMiddle());
-                currentCFG.getEntrypoints().add(element.getLeft());
-
-            }   
+            Triple<Statement, NodeList<CFG, Statement, Edge>, Statement> el = visitSourceElements(ctx.sourceElements());
+            currentCFG.getNodeList().mergeWith(el.getMiddle());
+            currentCFG.getEntrypoints().add(el.getLeft());
         }
 
         addRetNodesToCurrentCFG();
@@ -176,7 +184,7 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
         return null;
     }
     
-    public Object visitSourceElements(SourceElementsContext ctx) {
+    public Triple<Statement, NodeList<CFG, Statement, Edge>, Statement> visitSourceElements(SourceElementsContext ctx) {
         // SourceElements: SourceElement+
         NodeList<CFG, Statement, Edge> block = new NodeList<>(SEQUENTIAL_SINGLETON);
         Statement last = null, first = null;
@@ -354,9 +362,66 @@ public class JSFrontend extends JavaScriptParserBaseVisitor<Object> {
             System.out.println(singleExpression.toString());
             return new UnresolvedCall(currentCFG, getLocation(ctx), CallType.STATIC, null, methodName, arguments.toArray(Expression[]::new));
         }
+
+        if (ctx instanceof FunctionExpressionContext) {
+            FunctionExpressionContext fec = (FunctionExpressionContext) ctx;
+            visitFunctionExpression(fec);
+        }
+
+        if (ctx instanceof MemberDotExpressionContext) {
+            MemberDotExpressionContext mdec = (MemberDotExpressionContext) ctx;
+            visitMemberDotExpression(mdec);
+        }
+
         return null;
     }
 
+    public Object visitMemberDotExpression(MemberDotExpressionContext ctx) {
+        return null;
+    }
+
+    public Triple<Statement, NodeList<CFG, Statement, Edge>, Statement> visitFunctionBody(FunctionBodyContext ctx) {
+        if (ctx.sourceElements() != null) {
+            return visitSourceElements(ctx.sourceElements());
+        }
+        return null;
+        
+    }
+    public Object visitAnonymousFunctionDecl(AnonymousFunctionDeclContext ctx) {
+        String anonF = "$function@" + getLocation(ctx).toString();
+        CFG parentCFG = this.currentCFG;
+
+        this.currentCFG = new CFG(buildAnonymousCFGDescriptor(getLocation(ctx)));
+        currentUnit.addCodeMember(currentCFG);
+        visitFunctionBody(ctx.functionBody());
+        Triple<Statement, NodeList<CFG, Statement, Edge>, Statement> el = visitFunctionBody(ctx.functionBody());
+        if (el != null && el.getLeft() != null) {
+            currentCFG.getNodeList().mergeWith(el.getMiddle());
+            currentCFG.getEntrypoints().add(el.getLeft());
+        }
+       
+        addRetNodesToCurrentCFG();
+        this.currentCFG = parentCFG;
+        return null;
+    }
+
+    public Object visitArrowFunction(ArrowFunctionContext ctx) {
+        return null;
+    }
+    public Object visitFunctionExpression(FunctionExpressionContext ctx) {
+        if (ctx.anonymousFunction() != null) {
+            AnonymousFunctionContext afc = ctx.anonymousFunction();
+            if (afc instanceof AnonymousFunctionDeclContext) {
+                AnonymousFunctionDeclContext afdc = (AnonymousFunctionDeclContext) afc;
+                return visitAnonymousFunctionDecl(afdc);
+            }
+            if (afc instanceof ArrowFunctionContext) {
+                ArrowFunctionContext arfc = (ArrowFunctionContext) afc;
+                return visitArrowFunction(arfc);
+            }
+        }
+        return null;
+    }
     public Triple<Statement, NodeList<CFG, Statement, Edge>, Statement> visitExpressionSequence(ExpressionSequenceContext ctx) {
         NodeList<CFG, Statement, Edge> block = new NodeList<>(SEQUENTIAL_SINGLETON);
 
