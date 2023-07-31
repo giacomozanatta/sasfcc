@@ -20,10 +20,7 @@ import it.unive.lisa.symbolic.SymbolicExpression;
 import it.unive.lisa.symbolic.heap.HeapReference;
 import it.unive.lisa.symbolic.heap.MemoryAllocation;
 import it.unive.lisa.symbolic.value.Constant;
-import it.unive.lisa.symbolic.value.Variable;
 import it.unive.lisa.type.ReferenceType;
-import it.unive.lisa.type.Type;
-import it.unive.lisa.type.TypeSystem;
 
 public class Require extends it.unive.lisa.program.cfg.statement.UnaryExpression implements PluggableStatement {
     protected Statement st;
