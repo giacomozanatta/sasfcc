@@ -1,5 +1,0 @@
-method require: it.jack.sasfra.libraries.Require
-    type it.unive.lisa.type.Untyped::INSTANCE
-    param arg1 type it.unive.lisa.type.Untyped::INSTANCE
-root class Object
-class server
